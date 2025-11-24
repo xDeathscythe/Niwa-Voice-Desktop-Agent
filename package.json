@@ -2,9 +2,13 @@
   "name": "niwa-assistant",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
+  "description": "Niwa Voice Desktop Agent - AI-powered voice assistant with wake word detection",
+  "author": "Niwa Team",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
+    "dev:electron": "cross-env NODE_ENV=development concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "tsc && vite build && electron-builder",
     "preview": "vite preview"
   },
@@ -23,7 +27,8 @@
     "typescript": "^5.9.3",
     "vite": "^7.2.4",
     "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "wait-on": "^9.0.3"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -47,8 +52,11 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis",
-      "icon": "public/electron-vite.svg"
+      "target": "nsis"
+    },
+    "linux": {
+      "category": "Utility",
+      "target": ["AppImage", "snap"]
     },
     "nsis": {
       "oneClick": false,

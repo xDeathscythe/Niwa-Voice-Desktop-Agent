@@ -67,6 +67,26 @@ app.whenReady().then(() => {
     const accessKey = process.env.VITE_PICOVOICE_ACCESS_KEY
     const googleKey = process.env.VITE_GOOGLE_API_KEY
 
+    if (!accessKey || !googleKey) {
+        console.error('❌ Missing API Keys in .env file!')
+        console.error('Missing:', [
+            !accessKey && 'VITE_PICOVOICE_ACCESS_KEY',
+            !googleKey && 'VITE_GOOGLE_API_KEY'
+        ].filter(Boolean).join(', '))
+        console.error('Please create a .env file based on .env.example')
+
+        // Show error in renderer
+        if (win) {
+            win.webContents.on('did-finish-load', () => {
+                win?.webContents.send('api-error', {
+                    message: 'Missing API Keys',
+                    details: 'Please configure VITE_PICOVOICE_ACCESS_KEY and VITE_GOOGLE_API_KEY in .env file'
+                })
+            })
+        }
+        return
+    }
+
     if (accessKey && googleKey) {
         Promise.all([
             import('./services/wakeWord.ts'),

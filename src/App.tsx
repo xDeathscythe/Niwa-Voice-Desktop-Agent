@@ -4,8 +4,15 @@ type AppState = 'IDLE' | 'LISTENING' | 'THINKING' | 'SPEAKING'
 
 function App() {
     const [state, setState] = useState<AppState>('IDLE')
+    const [error, setError] = useState<{message: string, details: string} | null>(null)
 
     useEffect(() => {
+        // Listen for API errors
+        const removeErrorListener = (window as any).ipcRenderer.on('api-error', (_event: any, errorData: any) => {
+            console.error('API Error:', errorData)
+            setError(errorData)
+        })
+
         // Listen for state updates from Main process
         const removeStateListener = (window as any).ipcRenderer.on('niwa-state', (_event: any, newState: any) => {
             console.log('New State:', newState)
@@ -27,6 +34,7 @@ function App() {
         })
 
         return () => {
+            removeErrorListener()
             removeStateListener()
             removeAudioListener()
             audioContext.close()
@@ -43,11 +51,27 @@ function App() {
         }
     }
 
-    if (state === 'IDLE') return null
-
     const handleManualTrigger = (command: 'NIWA' | 'NIWA_PISI') => {
         (window as any).ipcRenderer.send('manual-trigger', command)
     }
+
+    // Show error message if API keys are missing
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen w-screen bg-gradient-to-br from-red-900/80 to-red-600/80 backdrop-blur-sm overflow-hidden p-6">
+                <div className="bg-black/60 backdrop-blur-md rounded-2xl p-6 border-2 border-red-500 shadow-2xl max-w-md">
+                    <div className="text-red-400 text-4xl mb-4 text-center">⚠️</div>
+                    <h2 className="text-white text-xl font-bold mb-3 text-center">{error.message}</h2>
+                    <p className="text-gray-300 text-sm mb-4 text-center leading-relaxed">{error.details}</p>
+                    <div className="text-xs text-gray-400 text-center">
+                        <p>See README.md for setup instructions</p>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    if (state === 'IDLE') return null
 
     return (
         <div className="flex flex-col items-center justify-center h-screen w-screen bg-transparent overflow-hidden group">
