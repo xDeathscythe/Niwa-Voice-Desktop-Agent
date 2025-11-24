@@ -43,7 +43,18 @@ function App() {
         }
     }
 
-    if (state === 'IDLE') return null
+    const getLabel = () => {
+        switch (state) {
+            case 'LISTENING':
+                return 'Listening'
+            case 'THINKING':
+                return 'Thinking'
+            case 'SPEAKING':
+                return 'Speaking'
+            default:
+                return 'Idle'
+        }
+    }
 
     const handleManualTrigger = (command: 'NIWA' | 'NIWA_PISI') => {
         (window as any).ipcRenderer.send('manual-trigger', command)
@@ -53,8 +64,9 @@ function App() {
         <div className="flex flex-col items-center justify-center h-screen w-screen bg-transparent overflow-hidden group">
             <div className="relative flex items-center justify-center w-32 h-32 mb-4">
                 <div className={`absolute w-full h-full ${getColor()}/30 rounded-full animate-ping`}></div>
-                <div className={`relative w-24 h-24 bg-black/80 text-white rounded-full flex items-center justify-center border-2 border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)] backdrop-blur-md transition-colors duration-300`}>
+                <div className={`relative w-24 h-24 bg-black/80 text-white rounded-full flex flex-col items-center justify-center border-2 border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)] backdrop-blur-md transition-colors duration-300`}>
                     <span className="text-xl font-bold tracking-wider">NIWA</span>
+                    <span className="text-[10px] uppercase tracking-wide opacity-80">{getLabel()}</span>
                 </div>
             </div>
 
