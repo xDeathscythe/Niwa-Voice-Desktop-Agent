@@ -44,10 +44,19 @@ function App() {
     // Visuals for different states
     const getColor = () => {
         switch (state) {
-            case 'LISTENING': return 'bg-red-500'
+            case 'LISTENING': return 'bg-green-500'
             case 'THINKING': return 'bg-yellow-500'
-            case 'SPEAKING': return 'bg-green-500'
-            default: return 'bg-blue-500' // IDLE
+            case 'SPEAKING': return 'bg-blue-500'
+            default: return 'bg-purple-500' // IDLE
+        }
+    }
+
+    const getBorderColor = () => {
+        switch (state) {
+            case 'LISTENING': return 'border-green-400'
+            case 'THINKING': return 'border-yellow-400'
+            case 'SPEAKING': return 'border-blue-400'
+            default: return 'border-purple-400' // IDLE
         }
     }
 
@@ -71,22 +80,30 @@ function App() {
         )
     }
 
-    if (state === 'IDLE') return null
-
     return (
         <div className="flex flex-col items-center justify-center h-screen w-screen bg-transparent overflow-hidden group">
             <div className="relative flex items-center justify-center w-32 h-32 mb-4">
-                <div className={`absolute w-full h-full ${getColor()}/30 rounded-full animate-ping`}></div>
-                <div className={`relative w-24 h-24 bg-black/80 text-white rounded-full flex items-center justify-center border-2 border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)] backdrop-blur-md transition-colors duration-300`}>
+                {/* Pulsing animation only when not IDLE */}
+                {state !== 'IDLE' && <div className={`absolute w-full h-full ${getColor()}/30 rounded-full animate-ping`}></div>}
+
+                {/* Main orb */}
+                <div className={`relative w-24 h-24 bg-black/80 text-white rounded-full flex items-center justify-center border-2 ${getBorderColor()} shadow-[0_0_20px_rgba(147,51,234,0.5)] backdrop-blur-md transition-all duration-300 ${state === 'IDLE' ? 'opacity-70' : 'opacity-100'}`}>
                     <span className="text-xl font-bold tracking-wider">NIWA</span>
                 </div>
+            </div>
+
+            {/* State indicator */}
+            <div className="mb-2">
+                <span className="text-white text-xs font-mono bg-black/60 px-3 py-1 rounded-full backdrop-blur-md">
+                    {state}
+                </span>
             </div>
 
             {/* Manual Triggers - Visible on Hover */}
             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                 <button
                     onClick={() => handleManualTrigger('NIWA')}
-                    className="px-3 py-1 bg-blue-600 text-white text-xs rounded-full hover:bg-blue-500 shadow-lg"
+                    className="px-3 py-1 bg-green-600 text-white text-xs rounded-full hover:bg-green-500 shadow-lg"
                 >
                     Chat
                 </button>
