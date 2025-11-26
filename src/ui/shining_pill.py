@@ -126,8 +126,16 @@ class ShiningPill(ctk.CTkToplevel):
         self.text_canvas.place(relx=0.5, rely=0.5, anchor="center")
 
         # Round close button (separate widget below pill, hidden by default)
-        self.close_button = ctk.CTkButton(
+        # Use a frame to ensure perfect circular rendering
+        self.close_button_frame = ctk.CTkFrame(
             self,
+            fg_color="transparent",
+            width=self.CLOSE_BUTTON_SIZE,
+            height=self.CLOSE_BUTTON_SIZE
+        )
+
+        self.close_button = ctk.CTkButton(
+            self.close_button_frame,
             text="×",
             font=("Segoe UI", 18, "bold"),
             text_color="#ffffff",
@@ -140,6 +148,8 @@ class ShiningPill(ctk.CTkToplevel):
             cursor="hand2",
             command=self._on_close_click
         )
+        self.close_button.pack_propagate(False)  # Prevent resizing
+        self.close_button.place(relx=0.5, rely=0.5, anchor="center")
 
         # Store position for showing/hiding
         self._close_button_x = 0.5
@@ -153,6 +163,8 @@ class ShiningPill(ctk.CTkToplevel):
         self.pill_frame.bind("<Leave>", self._on_leave)
         self.text_canvas.bind("<Enter>", self._on_enter)
         self.text_canvas.bind("<Leave>", self._on_leave)
+        self.close_button_frame.bind("<Enter>", self._on_close_enter)
+        self.close_button_frame.bind("<Leave>", self._on_leave)
         self.close_button.bind("<Enter>", self._on_close_enter)
         self.close_button.bind("<Leave>", self._on_leave)
 
@@ -474,7 +486,7 @@ class ShiningPill(ctk.CTkToplevel):
 
     def _fade_in_close_button(self):
         """Show close button on hover."""
-        self.close_button.place(
+        self.close_button_frame.place(
             relx=self._close_button_x,
             y=self._close_button_y,
             anchor="n"
@@ -482,7 +494,7 @@ class ShiningPill(ctk.CTkToplevel):
 
     def _fade_out_close_button(self):
         """Hide close button when not hovering."""
-        self.close_button.place_forget()
+        self.close_button_frame.place_forget()
 
     def _on_close_click(self):
         """Handle close button click."""

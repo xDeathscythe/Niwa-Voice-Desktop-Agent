@@ -87,11 +87,14 @@ class VoiceTypeApp:
             # Initialize OpenAI client if we have a key
             api_key = self._settings.get_api_key()
             if api_key:
-                self._client = OpenAI(api_key=api_key, timeout=30.0)
+                # Longer timeout for large audio files and slow network
+                self._client = OpenAI(api_key=api_key, timeout=60.0)
 
-            # Create hidden root window
+            # Create root window - keep it active but move offscreen
             self._root = ctk.CTk()
-            self._root.withdraw()  # Hide the root window
+            self._root.geometry("1x1+9999+9999")  # Move far offscreen instead of withdrawing
+            self._root.attributes("-topmost", False)  # Prevent from appearing
+            self._root.overrideredirect(True)  # No window decorations
 
             # Create MainWindow (settings) - visible on startup
             self._main_window = MainWindow(
@@ -112,7 +115,7 @@ class VoiceTypeApp:
             self._system_tray_service.start()
 
             # Create pill - this is the primary UI
-            self._pill = ShiningPill(self._root, on_click=self._toggle_recording, on_close=self._hide_to_tray)
+            self._pill = ShiningPill(self._root, on_click=self._toggle_recording, on_close=self._on_pill_close)
 
             # Auto-start if we have API key
             if api_key:
@@ -157,7 +160,8 @@ class VoiceTypeApp:
                 return
 
             if not self._client:
-                self._client = OpenAI(api_key=api_key, timeout=30.0)
+                # Longer timeout for large audio files and slow network
+                self._client = OpenAI(api_key=api_key, timeout=60.0)
 
             # Initialize ScreenCodeService with cache timeout from settings
             if not self._screen_code_service:
@@ -230,20 +234,22 @@ class VoiceTypeApp:
     def _on_hotkey_press(self):
         """Handle hotkey press - START recording (PUSH-TO-TALK)."""
         logger.info("✓ Hotkey PRESSED - Starting recording!")
-        # Schedule on main thread
-        if self._main_window:
-            self._main_window.after(0, self._start_recording_from_hotkey)
-        else:
-            logger.warning("No main window available")
+        # Schedule on main thread using ROOT window
+        if self._root:
+            try:
+                self._root.after(0, self._start_recording_from_hotkey)
+            except Exception as e:
+                logger.error(f"Failed to schedule hotkey callback: {e}")
 
     def _on_hotkey_release(self):
         """Handle hotkey release - STOP recording (PUSH-TO-TALK)."""
         logger.info("✓ Hotkey RELEASED - Stopping recording!")
-        # Schedule on main thread
-        if self._main_window:
-            self._main_window.after(0, self._stop_recording_from_hotkey)
-        else:
-            logger.warning("No main window available")
+        # Schedule on main thread using ROOT window
+        if self._root:
+            try:
+                self._root.after(0, self._stop_recording_from_hotkey)
+            except Exception as e:
+                logger.error(f"Failed to schedule hotkey callback: {e}")
 
     def _start_recording_from_hotkey(self):
         """Start recording from hotkey press."""
@@ -283,7 +289,7 @@ class VoiceTypeApp:
                 # Flash border to show click was received
                 original_border = self._pill.pill.cget("border_color")
                 self._pill.pill.configure(border_color=self._COLORS["accent"])
-                self._main_window.after(150, lambda: self._pill.pill.configure(
+                self._root.after(150, lambda: self._pill.pill.configure(
                     border_color=original_border
                 ))
 
@@ -383,8 +389,22 @@ class VoiceTypeApp:
             # Generic prompt to reduce hallucinations (no language forcing)
             kwargs["prompt"] = "This is a transcription of natural speech. The text may contain sentences about any topic."
 
-            response = self._client.audio.transcriptions.create(**kwargs)
-            raw_text = response.strip() if isinstance(response, str) else response.text.strip()
+            # Call Whisper with timeout handling
+            try:
+                response = self._client.audio.transcriptions.create(**kwargs)
+                raw_text = response.strip() if isinstance(response, str) else response.text.strip()
+            except Exception as whisper_error:
+                # Handle timeout and API errors
+                error_msg = str(whisper_error)
+                if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                    logger.error(f"Whisper API timeout after {time.time() - start:.1f}s")
+                    raise Exception("Transcription timeout - try again with shorter audio")
+                elif "connection" in error_msg.lower():
+                    logger.error(f"Whisper API connection error: {whisper_error}")
+                    raise Exception("Network error - check your connection")
+                else:
+                    logger.error(f"Whisper API error: {whisper_error}")
+                    raise
 
             logger.info(f"Whisper done in {time.time() - start:.2f}s ({len(raw_text)} chars): {raw_text[:50]}...")
 
@@ -396,7 +416,7 @@ class VoiceTypeApp:
             cleanup_model = self._settings.get("transcription.cleanup_model", "gpt-4o-mini")
             if cleanup_model:  # Only if model is not empty
                 if self._pill:
-                    self._main_window.after(0, lambda: self._pill.set_state(self._PillState.PROCESSING))
+                    self._root.after(0, lambda: self._pill.set_state(self._PillState.PROCESSING))
 
                 logger.info(f"Calling {cleanup_model} for cleanup...")
                 final_text = self._cleanup_text(raw_text)
@@ -450,19 +470,19 @@ class VoiceTypeApp:
             self._inject_text(final_text)
 
             # Success
-            self._main_window.after(0, self._on_success)
+            self._root.after(0, self._on_success)
 
         except Exception as e:
             logger.error(f"Processing failed: {e}")
-            self._main_window.after(0, lambda: self._on_error(str(e)))
+            self._root.after(0, lambda: self._on_error(str(e)))
 
     def _cleanup_text(self, text: str) -> str:
         """Clean up text with selected model."""
-        try:
-            model = self._settings.get("transcription.cleanup_model", "gpt-4o-mini")
-            if not model:
-                return text  # No cleanup
+        model = self._settings.get("transcription.cleanup_model", "gpt-4o-mini")
+        if not model:
+            return text  # No cleanup
 
+        try:
             response = self._client.chat.completions.create(
                 model=model,
                 messages=[
@@ -484,9 +504,15 @@ Rules:
                 max_tokens=4096
             )
             return response.choices[0].message.content.strip()
-        except Exception as e:
-            logger.warning(f"Cleanup failed: {e}")
-            return text
+        except Exception as cleanup_error:
+            # Handle timeout and API errors for cleanup
+            error_msg = str(cleanup_error)
+            if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                logger.warning(f"Cleanup timeout - using raw transcription")
+                return text
+            else:
+                logger.warning(f"Cleanup failed: {cleanup_error} - using raw transcription")
+                return text
 
     def _inject_text(self, text: str):
         """Copy text and paste using Windows API."""
@@ -566,10 +592,17 @@ Rules:
             except:
                 pass
 
-        # Destroy main window (this will exit the mainloop)
+        # Destroy main window
         if self._main_window:
             try:
                 self._main_window.destroy()
+            except:
+                pass
+
+        # Quit the main loop and exit the application
+        if self._root:
+            try:
+                self._root.quit()
             except:
                 pass
 
