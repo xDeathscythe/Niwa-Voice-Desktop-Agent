@@ -88,24 +88,28 @@ class VoiceTypeApp:
             if api_key:
                 self._client = OpenAI(api_key=api_key, timeout=30.0)
 
-            # Create UI with system tray hide callback
+            # Create MainWindow (settings) - will be hidden
             self._main_window = MainWindow(
                 settings_service=self._settings,
                 audio_service=self._audio,
                 on_start=self._start_service,
                 on_stop=self._stop_service,
-                on_close=self._hide_to_tray
+                on_close=self._hide_settings
             )
 
-            # Setup system tray
+            # Hide main window immediately (it's only for settings)
+            self._main_window.withdraw()
+
+            # Setup system tray with pill show/hide
             self._system_tray_service.setup(
                 on_show=self._show_from_tray,
-                on_quit=self._quit_from_tray
+                on_quit=self._quit_from_tray,
+                on_settings=self._show_settings_from_tray
             )
             self._system_tray_service.start()
 
-            # Create pill
-            self._pill = ShiningPill(on_click=self._toggle_recording, on_close=self._on_pill_close)
+            # Create pill - this is the primary UI
+            self._pill = ShiningPill(on_click=self._toggle_recording, on_close=self._hide_to_tray)
 
             # Auto-start if we have API key
             if api_key:
@@ -567,16 +571,30 @@ Rules:
                 pass
 
     def _hide_to_tray(self):
-        """Hide main window to system tray instead of closing."""
-        logger.info("Hiding window to system tray")
+        """Hide pill to system tray instead of closing."""
+        logger.info("Hiding pill to system tray")
+        if self._pill:
+            self._pill.withdraw()  # Hide pill
+
+    def _hide_settings(self):
+        """Hide settings window (called when settings window closed)."""
+        logger.info("Hiding settings window")
         if self._main_window:
-            self._main_window.withdraw()  # Hide window
+            self._main_window.withdraw()
 
     def _show_from_tray(self):
-        """Show main window from system tray."""
-        logger.info("Showing window from system tray")
+        """Show pill from system tray."""
+        logger.info("Showing pill from system tray")
+        if self._pill:
+            self._pill.deiconify()  # Show pill
+            self._pill.lift()  # Bring to front
+            self._pill.focus_force()  # Give focus
+
+    def _show_settings_from_tray(self):
+        """Show settings window from system tray."""
+        logger.info("Showing settings from system tray")
         if self._main_window:
-            self._main_window.deiconify()  # Show window
+            self._main_window.deiconify()  # Show settings
             self._main_window.lift()  # Bring to front
             self._main_window.focus_force()  # Give focus
 

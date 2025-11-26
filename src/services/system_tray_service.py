@@ -75,25 +75,34 @@ class SystemTrayService:
 
         return image
 
-    def setup(self, on_show: Callable, on_quit: Callable):
+    def setup(self, on_show: Callable, on_quit: Callable, on_settings: Optional[Callable] = None):
         """
         Setup system tray with callbacks.
 
         Args:
             on_show: Callback to show/restore main window
             on_quit: Callback to quit application
+            on_settings: Callback to show settings window
         """
         self._on_show_callback = on_show
         self._on_quit_callback = on_quit
+        self._on_settings_callback = on_settings
 
         # Create icon image
         icon_image = self.create_icon_image()
 
         # Create menu
-        menu = pystray.Menu(
+        menu_items = [
             pystray.MenuItem("Show", self._on_show, default=True),
-            pystray.MenuItem("Quit", self._on_quit)
-        )
+        ]
+
+        # Add settings if callback provided
+        if on_settings:
+            menu_items.append(pystray.MenuItem("Settings", self._on_settings))
+
+        menu_items.append(pystray.MenuItem("Quit", self._on_quit))
+
+        menu = pystray.Menu(*menu_items)
 
         # Create icon
         self._icon = pystray.Icon(
@@ -149,6 +158,11 @@ class SystemTrayService:
         """Handle Show menu item click."""
         if self._on_show_callback:
             self._on_show_callback()
+
+    def _on_settings(self, icon, item):
+        """Handle Settings menu item click."""
+        if self._on_settings_callback:
+            self._on_settings_callback()
 
     def _on_quit(self, icon, item):
         """Handle Quit menu item click."""
