@@ -44,6 +44,7 @@ class VoiceTypeApp:
         from .services.screen_code_service import ScreenCodeService
         from .services.code_identifier_service import CodeIdentifierService
         from .services.transcription_formatter_service import TranscriptionFormatterService
+        from .services.system_tray_service import SystemTrayService
         from .ui.main_window import MainWindow
         from .ui.shining_pill import ShiningPill, PillState
         from .ui.styles.theme import COLORS
@@ -56,6 +57,7 @@ class VoiceTypeApp:
         self._screen_code_service: Optional[ScreenCodeService] = None
         self._code_identifier_service = CodeIdentifierService()
         self._transcription_formatter_service = TranscriptionFormatterService()
+        self._system_tray_service = SystemTrayService()
         self._client: Optional[OpenAI] = None
 
         self._state = AppState.IDLE
@@ -93,6 +95,16 @@ class VoiceTypeApp:
                 on_start=self._start_service,
                 on_stop=self._stop_service
             )
+
+            # Override window close to hide to tray
+            self._main_window.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
+
+            # Setup system tray
+            self._system_tray_service.setup(
+                on_show=self._show_from_tray,
+                on_quit=self._quit_from_tray
+            )
+            self._system_tray_service.start()
 
             # Create pill
             self._pill = ShiningPill(on_click=self._toggle_recording, on_close=self._on_pill_close)
@@ -477,6 +489,17 @@ Rules:
             import ctypes
             from ctypes import wintypes
 
+            # Check paste timeout to prevent double paste
+            current_time = time.time()
+            time_since_last_paste = current_time - self._last_paste_time
+
+            if time_since_last_paste < self._paste_timeout:
+                logger.warning(f"Paste blocked - too soon ({time_since_last_paste:.3f}s < {self._paste_timeout}s)")
+                return
+
+            # Update last paste time
+            self._last_paste_time = current_time
+
             # Copy to clipboard
             pyperclip.copy(text)
             time.sleep(0.05)
@@ -545,6 +568,25 @@ Rules:
             except:
                 pass
 
+    def _hide_to_tray(self):
+        """Hide main window to system tray instead of closing."""
+        logger.info("Hiding window to system tray")
+        if self._main_window:
+            self._main_window.withdraw()  # Hide window
+
+    def _show_from_tray(self):
+        """Show main window from system tray."""
+        logger.info("Showing window from system tray")
+        if self._main_window:
+            self._main_window.deiconify()  # Show window
+            self._main_window.lift()  # Bring to front
+            self._main_window.focus_force()  # Give focus
+
+    def _quit_from_tray(self):
+        """Quit application from system tray."""
+        logger.info("Quitting application from system tray")
+        self._on_pill_close()
+
     def _cleanup(self):
         """Clean up resources."""
         self._stop_service()
@@ -562,4 +604,6 @@ Rules:
             self._code_identifier_service.cleanup()
         if self._transcription_formatter_service:
             self._transcription_formatter_service.cleanup()
+        if self._system_tray_service:
+            self._system_tray_service.cleanup()
         logger.info("Cleanup complete")
