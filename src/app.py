@@ -88,17 +88,14 @@ class VoiceTypeApp:
             if api_key:
                 self._client = OpenAI(api_key=api_key, timeout=30.0)
 
-            # Create MainWindow (settings) - will be hidden
+            # Create MainWindow (settings) - visible on startup
             self._main_window = MainWindow(
                 settings_service=self._settings,
                 audio_service=self._audio,
                 on_start=self._start_service,
                 on_stop=self._stop_service,
-                on_close=self._hide_settings
+                on_close=self._close_settings
             )
-
-            # Hide main window immediately (it's only for settings)
-            self._main_window.withdraw()
 
             # Setup system tray with pill show/hide
             self._system_tray_service.setup(
@@ -576,11 +573,15 @@ Rules:
         if self._pill:
             self._pill.withdraw()  # Hide pill
 
-    def _hide_settings(self):
-        """Hide settings window (called when settings window closed)."""
-        logger.info("Hiding settings window")
+    def _close_settings(self):
+        """Close settings window completely (called when X clicked on settings)."""
+        logger.info("Closing settings window")
         if self._main_window:
-            self._main_window.withdraw()
+            try:
+                self._main_window.destroy()
+                self._main_window = None
+            except Exception as e:
+                logger.error(f"Error closing settings: {e}")
 
     def _show_from_tray(self):
         """Show pill from system tray."""
@@ -591,9 +592,33 @@ Rules:
             self._pill.focus_force()  # Give focus
 
     def _show_settings_from_tray(self):
-        """Show settings window from system tray."""
+        """Show settings window from system tray (create new if closed)."""
         logger.info("Showing settings from system tray")
-        if self._main_window:
+
+        # If settings window was closed, create a new one
+        if not self._main_window:
+            from .ui.main_window import MainWindow
+            self._main_window = MainWindow(
+                settings_service=self._settings,
+                audio_service=self._audio,
+                on_start=self._start_service,
+                on_stop=self._stop_service,
+                on_close=self._close_settings
+            )
+            # Update UI if service is running
+            if self._hotkey_service.is_registered():
+                self._main_window._is_running = True
+                self._main_window.start_btn.configure(
+                    text="Stop",
+                    fg_color=self._COLORS["error"],
+                    hover_color="#dc2626"
+                )
+                self._main_window.status_dot.configure(fg_color=self._COLORS["success"])
+                self._main_window.status_label.configure(
+                    text="Running",
+                    text_color=self._COLORS["text_secondary"]
+                )
+        else:
             self._main_window.deiconify()  # Show settings
             self._main_window.lift()  # Bring to front
             self._main_window.focus_force()  # Give focus

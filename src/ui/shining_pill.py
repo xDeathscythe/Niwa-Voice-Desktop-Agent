@@ -77,6 +77,13 @@ class ShiningPill(ctk.CTkToplevel):
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.attributes("-alpha", 0.95)
+
+        # Remove from taskbar (Windows only)
+        try:
+            self.attributes("-toolwindow", True)
+        except:
+            pass
+
         self.configure(fg_color="black")
 
         try:
