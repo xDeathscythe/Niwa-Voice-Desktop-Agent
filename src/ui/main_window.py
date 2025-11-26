@@ -33,7 +33,8 @@ class MainWindow(ctk.CTk):
         settings_service: Optional[SettingsService] = None,
         audio_service: Optional[AudioService] = None,
         on_start: Optional[Callable] = None,
-        on_stop: Optional[Callable] = None
+        on_stop: Optional[Callable] = None,
+        on_close: Optional[Callable] = None
     ):
         super().__init__()
 
@@ -41,6 +42,7 @@ class MainWindow(ctk.CTk):
         self._audio = audio_service
         self._on_start = on_start
         self._on_stop = on_stop
+        self._on_close_callback = on_close
         self._is_running = False
         self._notes = []  # Voice notes storage
 
@@ -792,8 +794,12 @@ class MainWindow(ctk.CTk):
             self._on_stop()
 
     def _on_close(self):
-        self.quit()
-        self.destroy()
+        """Handle window close - use callback if provided, otherwise quit."""
+        if self._on_close_callback:
+            self._on_close_callback()
+        else:
+            self.quit()
+            self.destroy()
 
     # Public method to add transcribed text to current note
     def add_transcription_to_note(self, text: str):

@@ -88,16 +88,14 @@ class VoiceTypeApp:
             if api_key:
                 self._client = OpenAI(api_key=api_key, timeout=30.0)
 
-            # Create UI
+            # Create UI with system tray hide callback
             self._main_window = MainWindow(
                 settings_service=self._settings,
                 audio_service=self._audio,
                 on_start=self._start_service,
-                on_stop=self._stop_service
+                on_stop=self._stop_service,
+                on_close=self._hide_to_tray
             )
-
-            # Override window close to hide to tray
-            self._main_window.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
 
             # Setup system tray
             self._system_tray_service.setup(
