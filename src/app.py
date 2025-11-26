@@ -77,6 +77,7 @@ class VoiceTypeApp:
 
     def run(self):
         """Run the application."""
+        import customtkinter as ctk
         from .ui.main_window import MainWindow
         from .ui.shining_pill import ShiningPill
 
@@ -88,8 +89,13 @@ class VoiceTypeApp:
             if api_key:
                 self._client = OpenAI(api_key=api_key, timeout=30.0)
 
+            # Create hidden root window
+            self._root = ctk.CTk()
+            self._root.withdraw()  # Hide the root window
+
             # Create MainWindow (settings) - visible on startup
             self._main_window = MainWindow(
+                self._root,
                 settings_service=self._settings,
                 audio_service=self._audio,
                 on_start=self._start_service,
@@ -106,14 +112,14 @@ class VoiceTypeApp:
             self._system_tray_service.start()
 
             # Create pill - this is the primary UI
-            self._pill = ShiningPill(on_click=self._toggle_recording, on_close=self._hide_to_tray)
+            self._pill = ShiningPill(self._root, on_click=self._toggle_recording, on_close=self._hide_to_tray)
 
             # Auto-start if we have API key
             if api_key:
-                self._main_window.after(300, self._auto_start)
+                self._root.after(300, self._auto_start)
 
             logger.info("Starting main loop")
-            self._main_window.mainloop()
+            self._root.mainloop()
 
         except Exception as e:
             logger.critical(f"Fatal error: {e}", exc_info=True)
@@ -599,6 +605,7 @@ Rules:
         if not self._main_window:
             from .ui.main_window import MainWindow
             self._main_window = MainWindow(
+                self._root,
                 settings_service=self._settings,
                 audio_service=self._audio,
                 on_start=self._start_service,

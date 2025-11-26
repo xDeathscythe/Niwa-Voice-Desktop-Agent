@@ -48,8 +48,8 @@ class ShiningPill(ctk.CTkToplevel):
     PILL_HEIGHT = 42
     CLOSE_BUTTON_SIZE = 28  # Round close button below pill
 
-    def __init__(self, on_click: Optional[Callable] = None, on_close: Optional[Callable] = None):
-        super().__init__()
+    def __init__(self, master, on_click: Optional[Callable] = None, on_close: Optional[Callable] = None):
+        super().__init__(master)
 
         self._state = PillState.IDLE
         self._on_click = on_click

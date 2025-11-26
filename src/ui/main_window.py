@@ -22,7 +22,7 @@ from ..services.transcription_service import SUPPORTED_LANGUAGES
 logger = logging.getLogger(__name__)
 
 
-class MainWindow(ctk.CTk):
+class MainWindow(ctk.CTkToplevel):
     """Modern settings window with Voice Notes."""
 
     WIDTH = 1100
@@ -30,13 +30,14 @@ class MainWindow(ctk.CTk):
 
     def __init__(
         self,
+        master,
         settings_service: Optional[SettingsService] = None,
         audio_service: Optional[AudioService] = None,
         on_start: Optional[Callable] = None,
         on_stop: Optional[Callable] = None,
         on_close: Optional[Callable] = None
     ):
-        super().__init__()
+        super().__init__(master)
 
         self._settings = settings_service or SettingsService()
         self._audio = audio_service
