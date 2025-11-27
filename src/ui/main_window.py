@@ -97,6 +97,11 @@ class MainWindow(ctk.CTkToplevel):
 
     def _create_left_content(self):
         """Create settings panel."""
+        # IMPORTANT: Pack footer FIRST to reserve bottom space
+        # In Tkinter pack, side="bottom" must be packed before side="top" elements
+        # to properly reserve space at the bottom
+        self._create_footer()
+
         # Header
         header = ctk.CTkLabel(
             self.left_panel,
@@ -115,9 +120,6 @@ class MainWindow(ctk.CTkToplevel):
 
         # Options
         self._create_options()
-
-        # Footer with buttons
-        self._create_footer()
 
     def _create_right_content(self):
         """Create Voice Notes panel."""
