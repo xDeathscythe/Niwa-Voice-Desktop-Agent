@@ -2,6 +2,8 @@
 
 import logging
 import os
+import sys
+import atexit
 import threading
 import time
 import io
@@ -13,7 +15,12 @@ import numpy as np
 import pyperclip
 from openai import OpenAI
 
+from .services.prompt_templates import build_whisper_prompt, build_cleanup_prompt
+
 logger = logging.getLogger(__name__)
+
+# Global reference for atexit handler
+_app_instance = None
 
 
 class AppState(Enum):
@@ -62,6 +69,7 @@ class VoiceTypeApp:
 
         self._state = AppState.IDLE
         self._lock = threading.Lock()
+        self._is_shutting_down = False  # Prevent double cleanup
 
         # Paste lock to prevent double paste
         self._last_paste_time = 0
@@ -72,6 +80,11 @@ class VoiceTypeApp:
         self._pill: Optional[FloatingPill] = None
         self._PillState = PillState
         self._COLORS = COLORS
+
+        # Register atexit handler for cleanup on unexpected exit
+        global _app_instance
+        _app_instance = self
+        atexit.register(_atexit_cleanup)
 
         logger.info("VoiceTypeApp initialized")
 
@@ -377,8 +390,13 @@ class VoiceTypeApp:
             logger.info(f"Calling Whisper API... Audio size: {len(audio_data)} bytes ({audio_duration:.1f}s)")
             start = time.time()
 
-            # Whisper API call - auto-detect language
-            # Language setting is only used as hint for LLM cleanup, not for transcription
+            # Get language settings
+            lang_settings = self._settings.get_language_settings()
+            primary_lang = lang_settings.primary_language
+            all_langs = [primary_lang] + lang_settings.additional_languages
+            preserve_english = lang_settings.always_recognize_english
+
+            # Whisper API call with language-aware settings
             kwargs = {
                 "model": "whisper-1",
                 "file": ("audio.wav", audio_data, "audio/wav"),
@@ -386,8 +404,14 @@ class VoiceTypeApp:
                 "temperature": 0.0  # Reduce hallucinations
             }
 
-            # Generic prompt to reduce hallucinations (no language forcing)
-            kwargs["prompt"] = "This is a transcription of natural speech. The text may contain sentences about any topic."
+            # Set language hint if not auto-detect
+            if primary_lang and primary_lang != "auto":
+                kwargs["language"] = primary_lang
+                logger.info(f"Whisper language hint: {primary_lang}")
+
+            # Build contextual prompt based on language settings
+            kwargs["prompt"] = build_whisper_prompt(all_langs, preserve_english)
+            logger.info(f"Whisper prompt: {kwargs['prompt'][:80]}...")
 
             # Call Whisper with timeout handling
             try:
@@ -477,27 +501,28 @@ class VoiceTypeApp:
             self._root.after(0, lambda: self._on_error(str(e)))
 
     def _cleanup_text(self, text: str) -> str:
-        """Clean up text with selected model."""
+        """Clean up text with language-aware dynamic prompt."""
         model = self._settings.get("transcription.cleanup_model", "gpt-4o-mini")
         if not model:
             return text  # No cleanup
 
         try:
+            # Get language settings for dynamic prompt
+            lang_settings = self._settings.get_language_settings()
+
+            # Build dynamic cleanup prompt based on user's language preferences
+            system_prompt = build_cleanup_prompt(
+                primary_language=lang_settings.primary_language,
+                additional_languages=lang_settings.additional_languages,
+                preserve_english=lang_settings.always_recognize_english
+            )
+
+            logger.debug(f"Cleanup prompt (first 200 chars): {system_prompt[:200]}...")
+
             response = self._client.chat.completions.create(
                 model=model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": """Clean up the transcribed text while preserving the original language.
-
-Rules:
-1. Remove filler words (um, uh, like, you know, etc. in any language)
-2. Fix grammar and spelling in the ORIGINAL language
-3. Preserve the original meaning and FULL LENGTH of the text
-4. DO NOT shorten or omit parts
-5. DO NOT translate - keep the same language as the input
-6. Return ONLY the cleaned text"""
-                    },
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": text}
                 ],
                 temperature=0.1,
@@ -579,32 +604,49 @@ Rules:
             self._pill.show_error(error[:15])
 
     def _on_pill_close(self):
-        """Handle pill close button - shut down application."""
+        """Handle pill close button - shut down application completely."""
         logger.info("Shutting down application from pill close button")
 
-        # Clean up resources
+        # Prevent double shutdown
+        if self._is_shutting_down:
+            logger.warning("Already shutting down, ignoring")
+            return
+        self._is_shutting_down = True
+
+        # Clean up all resources
         self._cleanup()
 
         # Destroy pill window
         if self._pill:
             try:
                 self._pill.destroy()
-            except:
-                pass
+                self._pill = None
+            except Exception as e:
+                logger.debug(f"Error destroying pill: {e}")
 
         # Destroy main window
         if self._main_window:
             try:
                 self._main_window.destroy()
-            except:
-                pass
+                self._main_window = None
+            except Exception as e:
+                logger.debug(f"Error destroying main window: {e}")
 
-        # Quit the main loop and exit the application
+        # Quit the main loop
         if self._root:
             try:
                 self._root.quit()
-            except:
-                pass
+                self._root.destroy()
+                self._root = None
+            except Exception as e:
+                logger.debug(f"Error destroying root: {e}")
+
+        logger.info("Application shutdown complete, exiting process")
+
+        # Force exit to ensure all threads are terminated
+        # This is necessary because some libraries (pystray, torch) may have
+        # background threads that don't terminate cleanly
+        os._exit(0)
 
     def _hide_to_tray(self):
         """Hide pill to system tray instead of closing."""
@@ -669,22 +711,47 @@ Rules:
         self._on_pill_close()
 
     def _cleanup(self):
-        """Clean up resources."""
-        self._stop_service()
-        if self._hotkey_service:
-            self._hotkey_service.cleanup()
-        if self._audio:
-            self._audio.cleanup()
-        if self._preprocessing:
-            self._preprocessing.cleanup()
-        if self._active_window_service:
-            self._active_window_service.cleanup()
-        if self._screen_code_service:
-            self._screen_code_service.cleanup()
-        if self._code_identifier_service:
-            self._code_identifier_service.cleanup()
-        if self._transcription_formatter_service:
-            self._transcription_formatter_service.cleanup()
-        if self._system_tray_service:
-            self._system_tray_service.cleanup()
+        """Clean up all resources safely."""
+        logger.info("Starting cleanup...")
+
+        # Stop the voice service first
+        try:
+            self._stop_service()
+        except Exception as e:
+            logger.error(f"Error stopping service: {e}")
+
+        # Cleanup each service with error handling
+        services = [
+            ("hotkey_service", self._hotkey_service),
+            ("audio", self._audio),
+            ("preprocessing", self._preprocessing),
+            ("active_window_service", self._active_window_service),
+            ("screen_code_service", self._screen_code_service),
+            ("code_identifier_service", self._code_identifier_service),
+            ("transcription_formatter_service", self._transcription_formatter_service),
+            ("system_tray_service", self._system_tray_service),
+        ]
+
+        for name, service in services:
+            if service:
+                try:
+                    service.cleanup()
+                    logger.debug(f"Cleaned up {name}")
+                except Exception as e:
+                    logger.error(f"Error cleaning up {name}: {e}")
+
+        # Clear OpenAI client
+        self._client = None
+
         logger.info("Cleanup complete")
+
+
+def _atexit_cleanup():
+    """Cleanup handler for unexpected exits."""
+    global _app_instance
+    if _app_instance and not _app_instance._is_shutting_down:
+        logger.info("Atexit cleanup triggered")
+        try:
+            _app_instance._cleanup()
+        except Exception as e:
+            logger.error(f"Atexit cleanup error: {e}")

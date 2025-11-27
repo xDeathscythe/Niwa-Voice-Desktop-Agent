@@ -191,6 +191,9 @@ class AudioService:
         """
         Stop recording and return audio data as WAV bytes.
 
+        Includes a small buffer flush delay to ensure all audio is captured,
+        preventing cutoff at the end of speech.
+
         Returns:
             WAV file as bytes, ready for Whisper API
 
@@ -202,6 +205,11 @@ class AudioService:
             raise AudioRecordingError("Not recording")
 
         try:
+            # Small delay to flush any pending audio buffers
+            # This prevents the last few milliseconds from being cut off
+            import time
+            time.sleep(0.1)  # 100ms buffer flush delay
+
             # Stop stream
             if self._stream:
                 self._stream.stop()
@@ -223,7 +231,8 @@ class AudioService:
             if duration < self.MIN_DURATION:
                 raise AudioTooShortError(duration)
 
-            logger.info(f"Recording stopped. Duration: {duration:.2f}s")
+            logger.info(f"Recording stopped. Duration: {duration:.2f}s, "
+                       f"Samples: {len(audio_data)}")
 
             # Convert to WAV bytes
             wav_bytes = self._to_wav(audio_data)

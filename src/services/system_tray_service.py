@@ -148,11 +148,23 @@ class SystemTrayService:
         """Stop the system tray icon."""
         if self._icon and self._running:
             try:
-                self._icon.stop()
                 self._running = False
+                self._icon.stop()
+
+                # Wait for thread to finish (with timeout)
+                if self._icon_thread and self._icon_thread.is_alive():
+                    self._icon_thread.join(timeout=1.0)
+                    if self._icon_thread.is_alive():
+                        logger.warning("System tray thread did not stop cleanly")
+
+                self._icon = None
+                self._icon_thread = None
                 logger.info("System tray icon stopped")
             except Exception as e:
                 logger.error(f"Error stopping system tray: {e}")
+                # Force cleanup even on error
+                self._running = False
+                self._icon = None
 
     def _on_show(self, icon, item):
         """Handle Show menu item click."""

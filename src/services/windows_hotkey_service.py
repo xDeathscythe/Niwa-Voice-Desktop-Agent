@@ -95,18 +95,24 @@ class WindowsHotkeyService:
         try:
             self._stop_event.set()
 
-            if self._thread:
+            if self._thread and self._thread.is_alive():
                 self._thread.join(timeout=2.0)
+                if self._thread.is_alive():
+                    logger.warning("Hotkey thread did not stop cleanly")
 
+            self._thread = None
             self._registered = False
             self._on_press_callback = None
             self._on_release_callback = None
+            self._vk_keys_to_check = []
 
             logger.info("Hotkey polling stopped")
             return True
 
         except Exception as e:
             logger.error(f"Failed to unregister: {e}")
+            # Force cleanup even on error
+            self._registered = False
             return False
 
     def _poll_keys(self):

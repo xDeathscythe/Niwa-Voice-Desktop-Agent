@@ -15,9 +15,9 @@ import json
 from datetime import datetime
 
 from .styles.theme import COLORS, FONTS, SPACING, RADIUS, apply_theme
+from .language_picker import LanguagePickerDialog, LanguageChip, COMMON_LANGUAGES, get_language_name
 from ..services.settings_service import SettingsService
 from ..services.audio_service import AudioService
-from ..services.transcription_service import SUPPORTED_LANGUAGES
 
 logger = logging.getLogger(__name__)
 
@@ -279,15 +279,16 @@ class MainWindow(ctk.CTkToplevel):
 
         # Row 0
         self._create_dropdown(inner, "Microphone", "mic_dropdown", ["Loading..."], row=0, col=0)
-        languages = list(SUPPORTED_LANGUAGES.values())
-        self._create_dropdown(inner, "Language", "lang_dropdown", languages, "Auto-detect", row=0, col=1)
+        self._create_hotkey_input(inner, row=0, col=1)
 
         # Row 1
-        self._create_hotkey_input(inner, row=1, col=0)
         models = ["None (fastest)", "gpt-3.5-turbo (fast)", "gpt-4o-mini (balanced)", "gpt-4o (best)"]
-        self._create_dropdown(inner, "AI Model", "model_dropdown", models, "gpt-4o-mini (balanced)", row=1, col=1)
+        self._create_dropdown(inner, "AI Model", "model_dropdown", models, "gpt-4o-mini (balanced)", row=1, col=0)
 
         self._load_mics()
+
+        # Language section (separate card)
+        self._create_language_section()
 
     def _create_dropdown(self, parent, label_text, attr_name, values, default=None, row=0, col=0):
         """Create dropdown."""
@@ -355,6 +356,179 @@ class MainWindow(ctk.CTkToplevel):
             command=self._start_hotkey_capture
         )
         self.hotkey_btn.pack(fill="x")
+
+    def _create_language_section(self):
+        """Create language settings section."""
+        card = ctk.CTkFrame(
+            self.left_panel,
+            fg_color=COLORS["bg_secondary"],
+            corner_radius=RADIUS["lg"],
+            border_width=1,
+            border_color=COLORS["border"]
+        )
+        card.pack(fill="x", pady=(0, 12))
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=12)
+
+        # Header row
+        header_row = ctk.CTkFrame(inner, fg_color="transparent")
+        header_row.pack(fill="x", pady=(0, 8))
+
+        header = ctk.CTkLabel(
+            header_row,
+            text="Languages",
+            font=(FONTS["family"], FONTS["size_sm"], "bold"),
+            text_color=COLORS["text_primary"],
+            anchor="w"
+        )
+        header.pack(side="left")
+
+        # Always recognize English checkbox
+        self.english_var = ctk.BooleanVar(value=True)
+        english_check = ctk.CTkCheckBox(
+            header_row,
+            text="Always recognize English",
+            variable=self.english_var,
+            font=(FONTS["family"], FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            border_color=COLORS["border"],
+            checkmark_color=COLORS["text_primary"],
+            corner_radius=RADIUS["sm"],
+            width=20
+        )
+        english_check.pack(side="right")
+
+        # Primary language row
+        primary_row = ctk.CTkFrame(inner, fg_color="transparent")
+        primary_row.pack(fill="x", pady=(0, 8))
+
+        primary_label = ctk.CTkLabel(
+            primary_row,
+            text="Primary:",
+            font=(FONTS["family"], FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"],
+            width=60
+        )
+        primary_label.pack(side="left")
+
+        # Get language names for dropdown
+        primary_languages = [(code, name) for code, name in COMMON_LANGUAGES]
+        primary_values = [f"{name} ({code})" if code != "auto" else name for code, name in primary_languages]
+
+        self.primary_lang_dropdown = ctk.CTkComboBox(
+            primary_row,
+            values=primary_values,
+            font=(FONTS["family"], FONTS["size_sm"]),
+            fg_color=COLORS["bg_tertiary"],
+            border_width=0,
+            button_color=COLORS["bg_hover"],
+            button_hover_color=COLORS["bg_active"],
+            dropdown_fg_color=COLORS["bg_secondary"],
+            dropdown_hover_color=COLORS["bg_hover"],
+            corner_radius=RADIUS["lg"],
+            height=32,
+            text_color=COLORS["text_primary"],
+            dropdown_text_color=COLORS["text_primary"]
+        )
+        self.primary_lang_dropdown.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        self.primary_lang_dropdown.set("Auto-detect")
+
+        # Additional languages section
+        additional_label = ctk.CTkLabel(
+            inner,
+            text="Additional languages (up to 4):",
+            font=(FONTS["family"], FONTS["size_xs"]),
+            text_color=COLORS["text_secondary"],
+            anchor="w"
+        )
+        additional_label.pack(anchor="w", pady=(4, 4))
+
+        # Frame for language chips
+        self.additional_langs_frame = ctk.CTkFrame(inner, fg_color="transparent")
+        self.additional_langs_frame.pack(fill="x")
+
+        self._additional_languages = []  # Store language codes
+
+        # Add language button
+        self.add_lang_btn = ctk.CTkButton(
+            self.additional_langs_frame,
+            text="+ Add",
+            width=70,
+            height=28,
+            font=(FONTS["family"], FONTS["size_xs"]),
+            fg_color=COLORS["bg_tertiary"],
+            hover_color=COLORS["bg_hover"],
+            corner_radius=RADIUS["lg"],
+            text_color=COLORS["accent"],
+            command=self._show_language_picker
+        )
+        self.add_lang_btn.pack(side="left", padx=(0, 4), pady=4)
+
+    def _show_language_picker(self):
+        """Show language picker dialog."""
+        # Get excluded languages (primary + already added)
+        excluded = set(self._additional_languages)
+
+        # Add primary language to excluded
+        primary_text = self.primary_lang_dropdown.get()
+        if "(" in primary_text:
+            primary_code = primary_text.split("(")[-1].rstrip(")")
+            excluded.add(primary_code)
+
+        # Limit to 4 additional languages
+        if len(self._additional_languages) >= 4:
+            return
+
+        def on_select(code):
+            self._add_additional_language(code)
+
+        LanguagePickerDialog(
+            self,
+            excluded_languages=list(excluded),
+            on_select=on_select,
+            title="Add Language",
+            include_auto=False
+        )
+
+    def _add_additional_language(self, code: str):
+        """Add an additional language."""
+        if code in self._additional_languages:
+            return
+        if len(self._additional_languages) >= 4:
+            return
+
+        self._additional_languages.append(code)
+        self._render_additional_languages()
+
+    def _remove_additional_language(self, code: str):
+        """Remove an additional language."""
+        if code in self._additional_languages:
+            self._additional_languages.remove(code)
+        self._render_additional_languages()
+
+    def _render_additional_languages(self):
+        """Render additional language chips."""
+        # Clear existing chips (but keep add button)
+        for widget in self.additional_langs_frame.winfo_children():
+            if widget != self.add_lang_btn:
+                widget.destroy()
+
+        # Re-add chips
+        for code in self._additional_languages:
+            chip = LanguageChip(
+                self.additional_langs_frame,
+                code,
+                on_remove=self._remove_additional_language
+            )
+            chip.pack(side="left", padx=(0, 4), pady=4)
+
+        # Move add button to end and show/hide based on limit
+        self.add_lang_btn.pack_forget()
+        if len(self._additional_languages) < 4:
+            self.add_lang_btn.pack(side="left", padx=(0, 4), pady=4)
 
     def _create_options(self):
         """Create checkboxes."""
@@ -712,11 +886,18 @@ class MainWindow(ctk.CTkToplevel):
                         self._settings.set("audio.device_name", d.name)
                         break
 
-            lang_name = self.lang_dropdown.get()
-            for code, name in SUPPORTED_LANGUAGES.items():
-                if name == lang_name:
-                    self._settings.set_language(code)
-                    break
+            # Save language settings (new multi-language support)
+            primary_text = self.primary_lang_dropdown.get()
+            if primary_text == "Auto-detect":
+                primary_code = "auto"
+            elif "(" in primary_text:
+                primary_code = primary_text.split("(")[-1].rstrip(")")
+            else:
+                primary_code = "auto"
+
+            self._settings.set("language.primary_language", primary_code)
+            self._settings.set("language.additional_languages", self._additional_languages)
+            self._settings.set("language.always_recognize_english", self.english_var.get())
 
             self._settings.set_hotkey_string(self._hotkey_string)
             self._settings.save()
@@ -732,9 +913,24 @@ class MainWindow(ctk.CTkToplevel):
             self._settings.load()
             self.api_entry.insert(0, self._settings.get_api_key())
 
-            lang_code = self._settings.get_language()
-            lang_name = SUPPORTED_LANGUAGES.get(lang_code, "Auto-detect")
-            self.lang_dropdown.set(lang_name)
+            # Load language settings (new multi-language support)
+            lang_settings = self._settings.get_language_settings()
+
+            # Set primary language
+            primary_code = lang_settings.primary_language
+            if primary_code == "auto":
+                self.primary_lang_dropdown.set("Auto-detect")
+            else:
+                # Find display name
+                display_name = f"{get_language_name(primary_code)} ({primary_code})"
+                self.primary_lang_dropdown.set(display_name)
+
+            # Set additional languages
+            self._additional_languages = list(lang_settings.additional_languages)
+            self._render_additional_languages()
+
+            # Set always recognize English
+            self.english_var.set(lang_settings.always_recognize_english)
 
             model = self._settings.get("transcription.cleanup_model", "gpt-4o-mini")
             model_display = {
@@ -754,8 +950,8 @@ class MainWindow(ctk.CTkToplevel):
                 self._hotkey_string = hotkey_str.lower().replace(" ", "")
                 display_text = " + ".join(p.capitalize() for p in self._hotkey_string.split("+"))
                 self.hotkey_btn.configure(text=display_text)
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load some settings: {e}")
 
     def _toggle_service(self):
         if self._is_running:

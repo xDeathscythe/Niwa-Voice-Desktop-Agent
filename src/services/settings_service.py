@@ -62,6 +62,14 @@ class VariableRecognitionSettings:
 
 
 @dataclass
+class LanguageSettings:
+    """Language configuration for multi-language support."""
+    primary_language: str = "auto"  # Main language (ISO 639-1 code)
+    additional_languages: List[str] = field(default_factory=list)  # Up to 4 additional languages
+    always_recognize_english: bool = True  # Always preserve English technical terms
+
+
+@dataclass
 class AppSettings:
     """Complete application settings."""
     api_key: str = ""
@@ -71,6 +79,7 @@ class AppSettings:
     injection: InjectionSettings = field(default_factory=InjectionSettings)
     ui: UISettings = field(default_factory=UISettings)
     variable_recognition: VariableRecognitionSettings = field(default_factory=VariableRecognitionSettings)
+    language: LanguageSettings = field(default_factory=LanguageSettings)
 
 
 class SettingsService:
@@ -274,12 +283,31 @@ class SettingsService:
         self._settings.hotkey = HotkeySettings(modifiers=modifiers, key=key)
 
     def get_language(self) -> str:
-        """Get transcription language."""
-        return self._settings.transcription.language
+        """Get transcription language (legacy - uses primary language)."""
+        return self._settings.language.primary_language
 
     def set_language(self, language: str) -> None:
-        """Set transcription language."""
-        self.set("transcription.language", language)
+        """Set transcription language (legacy - sets primary language)."""
+        self.set("language.primary_language", language)
+
+    def get_primary_language(self) -> str:
+        """Get primary language for transcription."""
+        return self._settings.language.primary_language
+
+    def get_all_languages(self) -> List[str]:
+        """Get all configured languages (primary + additional)."""
+        langs = [self._settings.language.primary_language]
+        langs.extend(self._settings.language.additional_languages)
+        return [l for l in langs if l and l != "auto"]
+
+    def get_language_settings(self) -> LanguageSettings:
+        """Get full language settings."""
+        return self._settings.language
+
+    def set_additional_languages(self, languages: List[str]) -> None:
+        """Set additional languages (max 4)."""
+        # Limit to 4 additional languages
+        self.set("language.additional_languages", languages[:4])
 
     # Change callbacks
     def on_change(self, callback: Callable[[str, Any], None]) -> Callable[[], None]:
@@ -310,11 +338,26 @@ class SettingsService:
             "transcription": asdict(settings.transcription),
             "injection": asdict(settings.injection),
             "ui": asdict(settings.ui),
-            "variable_recognition": asdict(settings.variable_recognition)
+            "variable_recognition": asdict(settings.variable_recognition),
+            "language": asdict(settings.language)
         }
 
     def _dict_to_settings(self, data: dict) -> AppSettings:
-        """Convert dict to AppSettings."""
+        """Convert dict to AppSettings with migration support."""
+        # Handle language settings with migration from old format
+        language_settings = LanguageSettings()
+        if "language" in data:
+            language_settings = LanguageSettings(**data["language"])
+        elif "transcription" in data and "language" in data["transcription"]:
+            # Migration: old transcription.language -> language.primary_language
+            old_lang = data["transcription"].get("language", "auto")
+            language_settings = LanguageSettings(
+                primary_language=old_lang,
+                additional_languages=[],
+                always_recognize_english=True
+            )
+            logger.info(f"Migrated old language setting '{old_lang}' to new format")
+
         return AppSettings(
             api_key=data.get("api_key", ""),
             hotkey=HotkeySettings(**data.get("hotkey", {})) if "hotkey" in data else HotkeySettings(),
@@ -322,7 +365,8 @@ class SettingsService:
             transcription=TranscriptionSettings(**data.get("transcription", {})) if "transcription" in data else TranscriptionSettings(),
             injection=InjectionSettings(**data.get("injection", {})) if "injection" in data else InjectionSettings(),
             ui=UISettings(**data.get("ui", {})) if "ui" in data else UISettings(),
-            variable_recognition=VariableRecognitionSettings(**data.get("variable_recognition", {})) if "variable_recognition" in data else VariableRecognitionSettings()
+            variable_recognition=VariableRecognitionSettings(**data.get("variable_recognition", {})) if "variable_recognition" in data else VariableRecognitionSettings(),
+            language=language_settings
         )
 
     def export_settings(self, path: str) -> None:
